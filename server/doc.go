@@ -9,4 +9,5 @@ func init() {
 	servers.Register("ws", runWSServer)
 	servers.Register("ws-reverse", runWSClient)
 	servers.Register("lambda", runLambda)
+	servers.Register("gl", messageListen)
 }

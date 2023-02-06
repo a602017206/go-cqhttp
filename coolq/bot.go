@@ -153,7 +153,7 @@ func (bot *CQBot) uploadLocalImage(target message.Source, img *LocalImageElement
 		if err != nil {
 			return nil, errors.Wrap(err, "open image error")
 		}
-		defer func() { _ = f.Close() }()
+		//defer func() { _ = f.Close() }()
 		img.Stream = f
 	}
 	mt, ok := mime.CheckImage(img.Stream)
@@ -192,7 +192,7 @@ func (bot *CQBot) uploadLocalVideo(target message.Source, v *LocalVideoElement) 
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = video.Close() }()
+	//defer func() { _ = video.Close() }()
 	return bot.Client.UploadShortVideo(target, video, v.thumb, 4)
 }
 

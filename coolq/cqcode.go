@@ -1068,7 +1068,7 @@ func (bot *CQBot) ToElement(t string, d map[string]string, sourceType message.So
 		}
 		v.thumb = bytes.NewReader(data)
 		video, _ := os.Open(v.File)
-		defer video.Close()
+
 		_, _ = video.Seek(4, io.SeekStart)
 		header := make([]byte, 4)
 		_, _ = video.Read(header)
@@ -1110,7 +1110,7 @@ func (bot *CQBot) makeImageOrVideoElem(d map[string]string, video bool, sourceTy
 			goto useCacheFile
 		}
 		if exist {
-			_ = os.Remove(cacheFile)
+			_ = os.RemoveAll(cacheFile)
 		}
 		{
 			r := download.Request{URL: f, Limit: maxSize}
