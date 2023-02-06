@@ -597,6 +597,10 @@ func (bot *CQBot) event(typ string, others global.MSG) *event {
 	return ev
 }
 
+func (bot *CQBot) DispatchEvent(typ string, others global.MSG) {
+	bot.dispatch(bot.event(typ, others))
+}
+
 func (bot *CQBot) dispatchEvent(typ string, others global.MSG) {
 	bot.dispatch(bot.event(typ, others))
 }
