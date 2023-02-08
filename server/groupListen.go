@@ -40,12 +40,12 @@ type GroupListen struct {
 	MinioUrl       string `yaml:"minioUrl"`
 }
 
-var userCommand map[int64]string
+var userCommand map[int64]map[string]string
 var minioClient minio.Client
 var ctx = context.Background()
 
 func init() {
-	userCommand = make(map[int64]string)
+	userCommand = make(map[int64]map[string]string)
 
 }
 
@@ -109,6 +109,8 @@ func (g *groupListen) privateMessageEvent(c *client.QQClient, m *message.Private
 	messgae := m.ToString()
 	uin := m.Sender.Uin
 	var elem []message.IMessageElement
+	isFile := false
+	var filePath string
 	if strings.Contains(messgae, "哈哈机器人") {
 		elem = g.bot.ConvertStringMessage("叫我什么事", message.SourcePrivate)
 	}
@@ -129,7 +131,14 @@ func (g *groupListen) privateMessageEvent(c *client.QQClient, m *message.Private
 		commond := strings.Replace(messgae, "文件 ", "", len(messgae))
 		log.Infof("文件命令 %q", commond)
 		res := g.minioManager(uin, commond)
-		elem = g.bot.ConvertStringMessage(res, message.SourcePrivate)
+		if strings.HasPrefix(res, "文件地址 ") {
+			isFile = true
+			filePath = strings.Replace(res, "文件地址 ", "", len(res))
+		}
+		if !isFile {
+			elem = g.bot.ConvertStringMessage(res, message.SourcePrivate)
+		}
+
 	}
 
 	num := true
@@ -151,12 +160,17 @@ func (g *groupListen) privateMessageEvent(c *client.QQClient, m *message.Private
 
 	}
 
-	if len(elem) == 0 {
+	if len(elem) == 0 && !isFile {
 		return
 	}
-
-	g.bot.SendPrivateMessage(uin, 0, &message.SendingMessage{Elements: elem})
-
+	if isFile {
+		split := strings.Split(filePath, "/")
+		x := len(split)
+		g.bot.CQUploadPrivateFile(m.Sender.Uin, filePath, split[x-1])
+	} else {
+		g.bot.SendPrivateMessage(uin, 0, &message.SendingMessage{Elements: elem})
+	}
+	os.RemoveAll(filePath)
 	//file := "/Users/dingwei/mount.txt"
 	//g.bot.CQUploadPrivateFile(m.Sender.Uin, file, "mount.txt")
 
@@ -165,6 +179,8 @@ func (g *groupListen) privateMessageEvent(c *client.QQClient, m *message.Private
 func (g *groupListen) minioManager(uin int64, command string) string {
 
 	dir := userCommand[uin]
+	bucketName := dir["bucket"]
+	director := dir["dir"]
 
 	var res string
 	if strings.HasPrefix(command, "当前目录") {
@@ -176,24 +192,82 @@ func (g *groupListen) minioManager(uin int64, command string) string {
 			for i := range buckets {
 				res += (buckets[i].Name + "\n")
 			}
-		}
+		} else {
 
+			loo := minio.ListObjectsOptions{
+				Prefix:    director,
+				Recursive: true,
+			}
+			objects := minioClient.ListObjects(ctx, bucketName, loo)
+			for object := range objects {
+				res += "文件名称：" + object.Key + "，文件类型：" + object.ContentType + "\n"
+			}
+
+		}
 	}
-	if strings.HasPrefix(command, "打开桶") {
-		bucketName := strings.Replace(command, "打开桶 ", "", len(command))
+
+	if strings.HasPrefix(command, "桶列表") {
+
+		buckets, err := minioClient.ListBuckets(ctx)
+		if err != nil {
+			log.Errorf("获取桶列表错误:{}", err)
+		}
+		for i := range buckets {
+			res += (buckets[i].Name + "\n")
+		}
+	}
+
+	if strings.HasPrefix(command, "打开桶 ") {
+		bucketName = strings.Replace(command, "打开桶 ", "", len(command))
 		exists, err := minioClient.BucketExists(ctx, bucketName)
 		if err != nil {
 			log.Errorf("查询桶信息错误:{}", err)
 		}
 		if exists {
-			loo := minio.ListObjectsOptions{}
+			if dir == nil {
+				dir = make(map[string]string)
+			}
+			dir["bucket"] = bucketName
+			loo := minio.ListObjectsOptions{
+				Recursive: true,
+			}
 			objects := minioClient.ListObjects(ctx, bucketName, loo)
 			for object := range objects {
-				res += object.Key + "\n"
+				res += "文件名称：" + object.Key + "，文件类型：" + object.ContentType + "\n"
 			}
 		}
 	}
 
+	if strings.HasPrefix(command, "存储路径 ") {
+		directory := strings.Replace(command, "存储路径 ", "", len(command))
+		dir["dir"] = directory
+		res = "地址记录成功"
+	}
+
+	if strings.HasPrefix(command, "下载 ") {
+		objectName := strings.Replace(command, "下载 ", "", len(command))
+		goo := minio.GetObjectOptions{}
+		object, err := minioClient.GetObject(ctx, bucketName, objectName, goo)
+		if err != nil {
+			log.Errorf("获取文件信息错误:{}", err)
+		}
+		stat, err := object.Stat()
+		if err != nil {
+			log.Errorf("获取文件信息错误:{}", err)
+		}
+		if len(stat.Key) == 0 {
+			return "文件不存在"
+		}
+		key := strings.Split(stat.Key, "/")
+		join := path.Join(global.CachePath, key[len(key)-1])
+		err = minioClient.FGetObject(ctx, bucketName, objectName, join, goo)
+		if err != nil {
+			log.Errorf("下载文件信息错误:{}", err)
+		}
+		return "文件地址 " + join
+	}
+
+	userCommand[uin] = dir
 	return res
 }
 
@@ -219,9 +293,22 @@ func (gl *groupListen) offlineFileEvent(c *client.QQClient, e *client.OfflineFil
 
 	oldFilePath := value["file"].(string)
 
-	os.Rename(oldFilePath, path.Join(global.CachePath, e.FileName))
+	join := path.Join(global.CachePath, e.FileName)
+	os.Rename(oldFilePath, join)
 
 	log.Infof("", oldFilePath)
+
+	dir := userCommand[e.Sender]
+	if len(dir) != 0 {
+		bucketName := dir["bucket"]
+		director := dir["dir"]
+		poo := minio.PutObjectOptions{}
+		minioClient.FPutObject(ctx, bucketName, director+"/"+e.FileName, join, poo)
+		var elem []message.IMessageElement
+		elem = gl.bot.ConvertStringMessage("上传成功", message.SourcePrivate)
+		gl.bot.SendPrivateMessage(e.Sender, 0, &message.SendingMessage{Elements: elem})
+		os.RemoveAll(join)
+	}
 
 }
 
