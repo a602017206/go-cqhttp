@@ -623,6 +623,7 @@ func (bot *CQBot) CQUploadPrivateFile(userID int64, file, name string) global.MS
 		log.Warnf("上传私聊 %v 文件 %v 失败: %+v", userID, file, err)
 		return Failed(100, "FILE_SYSTEM_UPLOAD_API_ERROR", err.Error())
 	}
+	fileBody.Close()
 	return OK(nil)
 }
 
